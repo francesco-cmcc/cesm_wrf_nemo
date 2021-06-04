@@ -167,9 +167,27 @@ def buildnml(case, caseroot, compname):
         CFC = "no_cfc_file.dat"
       # WOA 2013
         TEMPERATURE   = "ic/WOA13-95A4_ORCA025_L50_1m_potential_temperature_nomask.nc"
+        SALINITY      = "ic/WOA13-95A4_ORCA025_L50_1m_practical_salinity_nomask.nc"              
+    elif ocn_grid == "nemo_med" : # TO BE EDITED !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        COORDINATES   = "grid/coordinates.nc"
+        BATHYMETRY    = "grid/bathy_meter.nc"
+        MASK_ITF      = "grid/ORCA025_maskITF_v1.0.nc"
+        SUBBASINS     = "grid/ORCA025_subbasins.nc"
+        GEOTHERMAL    = "forcing/ORCA025_Goutorbe_gh_flux_bicubic.nc"
+        K1ROWDRG      = "forcing/ORCA025_K1_v1.0.nc"
+        M2ROWDRG      = "forcing/ORCA025_M2_v1.0.nc"
+        CHLOROPHYLL   = "forcing/ORCA025_ESACCI_CHLA_bicubic.nc"
+        COORDINATES_XIOS = "grid/ORCA025_coordinates_xios.nc"
+        DISTCOAST = "no_distcoast_file.nc"
+        SSSR = "no_sssr_file.nc"
+        CFC = "no_cfc_file.dat"
+        AHMCOEF       = "forcing/ORCA1_ahmcoef_v1.0.nc"
+      # WOA 2013
+        TEMPERATURE   = "ic/WOA13-95A4_ORCA025_L50_1m_potential_temperature_nomask.nc"
         SALINITY      = "ic/WOA13-95A4_ORCA025_L50_1m_practical_salinity_nomask.nc"
-    else:
-        expect(False, "grid %s is not a valid value in OCN_GRID!" %ocn_grid)
+
+    else:                                                                                        
+        expect(False, "grid %s is not a valid value in OCN_GRID!" %ocn_grid)                     
 
     if NEMO_TOP_CFC == 1:
         CFC = "../resolution_independent/forcing/CFCs_CDIAC.nc"
@@ -428,6 +446,8 @@ def buildnml(case, caseroot, compname):
         DTSEC = 3600
     elif ocn_grid == "tn0.25v3":
         DTSEC = 1200
+    elif ocn_grid == 'nemo_med': # added by F.R. 21/05/21
+        DTSEC = 120
     else:
        expect(False, "%s is not a valid value in OCN_GRID for NEMO!" %ocn_grid) 
 
@@ -474,7 +494,7 @@ def buildnml(case, caseroot, compname):
                 # 1.5 hours OCN-CPL coupling
                 nnfsbc = ts_per_day / ocn_ncpl
         elif ocn_ncpl == 24:
-            if ocn_grid != "tn1v3" and ocn_grid != "tn0.25v3":
+            if ocn_grid != "tn1v3" and ocn_grid != "tn0.25v3" and ocn_grid != "nemo_med":
                 expect(False, "Error: wrong OCN_NCPL value %s for grid %s with time step %d}!" % (ocn_ncpl, ocn_grid, DTSEC))
             else:
                 # 1 hours OCN-CPL coupling

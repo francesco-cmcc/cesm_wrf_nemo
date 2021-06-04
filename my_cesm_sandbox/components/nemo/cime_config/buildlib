@@ -1,0 +1,160 @@
+#!/usr/bin/env python
+"""
+CIME interface to build the nemo component library
+"""
+import os, shutil, sys, glob, imp
+
+CIMEROOT = os.environ.get("CIMEROOT")
+if CIMEROOT is None:
+    raise SystemExit("ERROR: must set CIMEROOT environment variable")
+sys.path.append(os.path.join(CIMEROOT, "scripts", "Tools"))
+
+from standard_script_setup import *
+from CIME.case import Case
+from CIME.utils import expect, run_cmd
+from CIME.buildlib import parse_input
+#from CIME.BuildTools import configure
+
+logger = logging.getLogger(__name__)
+
+###############################################################################
+def _build_nemo():
+###############################################################################
+
+    caseroot, libroot, _ = parse_input(sys.argv)
+
+    with Case(caseroot) as case:
+        casetools = case.get_value("CASETOOLS")
+        objroot = case.get_value("OBJROOT")
+        srcroot = case.get_value("SRCROOT")
+        gmake_j = case.get_value("GMAKE_J")
+        gmake = case.get_value("GMAKE")
+
+        # create the required $OBJROOT/ocn/obj directory
+        blddir_obj = os.path.join(objroot, "ocn", "obj")
+        if not os.path.exists(blddir_obj):
+            os.makedirs(blddir_obj)
+        os.chdir(blddir_obj)
+
+        # set cpp option for nemo depending on ocean grid and passive tracer
+        # base_cpp = " -Dkey_diaar5 -Dkey_diahth -Dkey_dynspg_ts -Dkey_ldfslp -Dkey_trabbl -Dkey_traldf_c2d -Dkey_zdfddm -Dkey_zdftke -Dkey_mpp_mpi -Dkey_mpp_rep -Dkey_iomput -Dkey_xios2 -Dkey_coupled -DCCSMCOUPLED "
+        base_cpp = "-Dkey_zdftke  -Dkey_dynspg_ts   -Dkey_iomput  -Dkey_mpp_mpi  -Dkey_bdy  -Dkey_mpp_rep  -Dkey_netcdf4  -Dkey_xios2 -Dkey_cpl_carbon_cycle -DCCSMCOUPLED"
+        res_cpp = " "
+
+       # if "tn1v3" in case.get_value("OCN_GRID"):
+       #     res_cpp = " "
+       # elif "tn0.25v3" in case.get_value("OCN_GRID"):
+       #     res_cpp = " -Dkey_dynldf_c2d -Dkey_zdftmx "
+
+        top_cpp = " "
+        ocn_pstr_modules = " ".join(case.get_value("NEMO_TOP_MODULES").split())
+        if ocn_pstr_modules:
+            top_cpp = " -Dkey_top "
+            for module in ocn_pstr_modules.split(" "):
+                if module == "age":
+                    top_cpp = top_cpp + " -Dkey_age "
+                elif module == "cfc":
+                    top_cpp = top_cpp + " -Dkey_cfc "
+                else:
+                    expect(False, "module %s is not a valid value in NEMO_TOP_MODULES!" %module)
+    
+        bfb_cpp = " "
+        bfbflag = case.get_value("BFBFLAG")
+        if bfbflag:
+            bfb_cpp = bfb_cpp + " -Dkey_nosignedzero "
+    
+        dbg_cpp = " "
+        dbgflag = case.get_value("DEBUG")
+        if dbgflag:
+            dbg_cpp = dbg_cpp + " -Dkey_nosignedzero "
+
+        nemodefs = base_cpp #+ res_cpp + top_cpp + bfb_cpp + dbg_cpp
+
+        # create Filepath file
+        objroot = case.get_value("OBJROOT")
+        filepath_file = os.path.join(objroot, "ocn", "obj", "Filepath")
+        if not os.path.isfile(filepath_file):
+            paths_nemo = [os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "ASM"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "BDY"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "C1D"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "CRS"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "DIA"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "DOM"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "DYN"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "FLO"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "ICB"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "IOM"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "LBC"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "LDF"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "OBS"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "SBC"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "SOL"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "STO"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "TRA"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "TRD"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "OPA_SRC", "ZDF"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "EXTERNAL", "IOIPSL", "src"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "drivers", "cpl_share"),
+                          os.path.join(srcroot, "components", "nemo", "NEMO36", "drivers", "cpl_mct"),
+                          os.path.join(caseroot, "SourceMods", "src.nemo")]
+            ocn_pstr_modules = " ".join(case.get_value("NEMO_TOP_MODULES").split())
+            if ocn_pstr_modules:
+                paths_top = [os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "TOP_SRC"),
+                             os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "TOP_SRC", "AGE"),
+                             os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "TOP_SRC", "C14b"),
+                             os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "TOP_SRC", "CFC"),
+                             os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "TOP_SRC", "MY_TRC"),
+                             os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "TOP_SRC", "PISCES"),
+                             os.path.join(srcroot, "components", "nemo", "NEMO36", "NEMOGCM", "NEMO", "TOP_SRC", "TRP")]
+
+            with open(filepath_file, "w") as filepath:
+                filepath.write("\n".join(paths_nemo))
+                if ocn_pstr_modules:
+                    filepath.write("\n".join(paths_top))
+                filepath.write("\n")
+
+        # build the library
+        makefile = os.path.join(casetools, "Makefile")
+        complib = os.path.join(libroot, "libocn.a")
+        #inc_xios = case.get_value("XIOS_PATH")
+        inc_xios = os.environ["XIOS_PATH"]+"/inc"
+        cmd = "%s complib -j %d MODEL=nemo COMPLIB=%s -f %s USER_CPPDEFS=\"%s\" USER_INCLDIR=\"-I%s\"" \
+            % (gmake, gmake_j, complib, makefile, nemodefs, inc_xios)
+
+        rc, out, err = run_cmd(cmd, from_dir=os.path.join(objroot, "ocn", "obj"))
+        expect(rc == 0, "Command %s failed rc=%d\nout=%s\nerr=%s" % (cmd, rc, out, err))
+
+        # build the REBUILD_NEMO tool, but it can be compiled only once, so I copy the compiled version
+        OrigRNd = os.path.join(srcroot, "components", "nemo", "nemo_tool", "REBUILD_NEMO")
+        RNdir = os.path.join(objroot,"ocn", "REBUILD_NEMO")
+        if not os.path.exists(RNdir):
+        #    os.makedirs(RNdir)
+            shutil.copytree(OrigRNd,RNdir)
+
+#        RNdir2 = os.path.join(objroot,"ocn", "REBUILD_NEMO", "src")
+#        os.chdir(RNdir2)
+#
+#        tooldir = os.path.join(CIMEROOT, "tools")
+#        mach_name = 
+#
+#        
+#
+#        if not os.path.exists("env_mach_specific.xml"):
+#            cmd = "%s/configure --mpilib mpi-serial --machine %s" % (tooldir, mach_name)
+#            rc, out, err = run_cmd(cmd, from_dir=RNdir2)
+#            expect(rc == 0, "Command %s failed rc=%d\nout=%s\nerr=%s" % (cmd, rc, out, err))
+#        
+#        source .env_mach_specific.csh
+#        cmd = "%s -f %s" % (gmake, makefile)
+#
+#        rc, out, err = run_cmd(cmd, from_dir=RNdir2)
+#        expect(rc == 0, "Command %s failed rc=%d\nout=%s\nerr=%s" % (cmd, rc, out, err))
+#
+## possible option
+## /users/home/dp16116/CESM2/cesm2.1.0/cime/tools/configure --macros-format Makefile --mpilib mpi-serial --machine athena 
+
+###############################################################################
+
+if __name__ == "__main__":
+    _build_nemo()
